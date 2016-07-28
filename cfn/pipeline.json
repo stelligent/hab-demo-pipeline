@@ -1,6 +1,6 @@
 {
     "AWSTemplateFormatVersion": "2010-09-09",
-    "Description": "Master pipeline stack that calls nested stacks",
+    "Description": "Deploys a CodePipeline and Lambda function for automating Habitat",
     "Parameters": {
         "KeyName": {
             "Description": "Name of an existing EC2 KeyPair to enable SSH access to the instance",
