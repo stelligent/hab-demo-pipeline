@@ -168,7 +168,7 @@
                     "S3Bucket": {
                         "Ref": "LambdaBucketName"
                     },
-                    "S3Key": "serverless-pipeliner.zip"
+                    "S3Key": "pipeline-runner.zip"
                 },
                 "Role": {
                     "Fn::GetAtt": ["CodePipelineLambdaRole", "Arn"]
@@ -445,7 +445,7 @@
                     "Fn::Base64": {
                         "Fn::Join": ["", [
                             "#!/bin/bash \n",
-                            "set -x \n",
+                            "set -ex \n",
                             "function error_exit { \n",
                             "  cfn-signal -e 1 --stack ", {
                                 "Ref": "AWS::StackName"
@@ -458,7 +458,7 @@
                             "service docker start || error_exit \n",
                             "usermod -a -G docker ec2-user || error_exit \n",
                             "cd /tmp || error_exit \n",
-                            "curl https://amazon-ssm-us-east-1.s3.amazonaws.com/latest/linux_amd64/amazon-ssm-agent.rpm -o amazon-ssm-agent.rpm || error_exit \n",
+                            "curl -L https://amazon-ssm-us-east-1.s3.amazonaws.com/latest/linux_amd64/amazon-ssm-agent.rpm -o amazon-ssm-agent.rpm || error_exit \n",
                             "yum install -y --nogpgcheck localinstall amazon-ssm-agent.rpm || error_exit \n",
                             "curl -L 'https://api.bintray.com/content/habitat/stable/linux/x86_64/hab-%24latest-x86_64-linux.tar.gz?bt_package=hab-x86_64-linux' -o habitat.tar.gz || error_exit \n",
                             "mkdir -p habitat && tar xvzf habitat.tar.gz -C habitat --strip-components=1 || error_exit \n",
