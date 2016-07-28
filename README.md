@@ -18,7 +18,10 @@ npm install
 
 **Config**
 ```
-Update the values in awsConfig.json or copy it to a new file called awsConfig.local.json.
+1. export AWS_PROFILE=your-profile-name
+   export LAMBDA_BUCKET=a-unique-bucket-name
+
+2. Update the values in awsConfig.json or copy it to a new file called awsConfig.local.json.
 awsConfig.local.json will be used if it exists.
 ```
 
