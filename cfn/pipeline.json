@@ -455,13 +455,6 @@
                             "yum update -y || error_exit \n",
                             "yum install -y docker || error_exit \n",
                             "yum install -y git || error_exit \n",
-                            "yum install -y ghc || error_exit \n",
-                            "curl -o cabal.tar.gz -L https://www.haskell.org/cabal/release/cabal-install-1.24.0.0/cabal-install-1.24.0.0-x86_64-unknown-linux.tar.gz || error_exit \n",
-                            "tar xvzf cabal.tar.gz || error_exit \n",
-                            "cp cabal /usr/bin/ || error_exit \n",
-                            "cabal update \n",
-                            "cabal install shellcheck || error_exit \n",
-                            "cp /root/.cabal/bin/shellcheck /usr/bin || error_exit \n",
                             "service docker start || error_exit \n",
                             "usermod -a -G docker ec2-user || error_exit \n",
                             "cd /tmp || error_exit \n",
@@ -471,7 +464,7 @@
                             "mkdir -p habitat && tar xvzf habitat.tar.gz -C habitat --strip-components=1 || error_exit \n",
                             "cp habitat/hab /usr/bin/ || error_exit \n",
                             "git clone https://github.com/sstephenson/bats.git || error_exit \n",
-                            "cd bats && ./install.sh /usr/bin || error_exit \n",
+                            "cd bats && ./install.sh /usr || error_exit \n",
                             "/opt/aws/bin/cfn-signal -e 0 --stack ", {
                                 "Ref": "AWS::StackName"
                             }, " --resource EC2Instance \n"

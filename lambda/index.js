@@ -27,7 +27,9 @@ exports.handler = function(event, context) {
             cmds.push("hab origin key upload " + pkgOrigin);
             break;
         case "Test-StaticAnalysis":
-            cmds.push("shellcheck -e SC2034 -e SC2154 /tmp/SourceOutput/plan.sh");
+            cmds.push("bash -n /tmp/SourceOutput/plan.sh");
+            //Disable shellcheck for now.  Takes too long to install on Amazon Linux
+            //cmds.push("shellcheck -e SC2034 -e SC2154 /tmp/SourceOutput/plan.sh");
             break;
         case "Build-HabitatPackage":
             cmds.push("cd /tmp/SourceOutput && hab pkg build .");
