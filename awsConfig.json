@@ -1,0 +1,18 @@
+{
+    "creds": {
+        "accessKeyId": "xxx",
+        "secretAccessKey": "xxx"
+    },
+    "region": "us-east-1",
+    "bucket": "my-pipeline-bucket",
+    "name": "my-pipeline-stack",
+    "force": false,
+    "defaults": {
+        "KeyName": "xxx",
+        "LambdaBucketName": "my-lambda-bucket",
+        "GitHubRepo": "hab-demo",
+        "GitHubUser": "stelligent",
+        "GitHubToken": "xxx",
+        "GitHubBranch": "master"
+    }
+}

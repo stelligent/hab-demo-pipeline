@@ -1,0 +1,515 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "Master pipeline stack that calls nested stacks",
+    "Parameters": {
+        "KeyName": {
+            "Description": "Name of an existing EC2 KeyPair to enable SSH access to the instance",
+            "Type": "AWS::EC2::KeyPair::KeyName",
+            "ConstraintDescription": "must be the name of an existing EC2 KeyPair."
+        },
+        "LambdaBucketName": {
+            "Type": "String",
+            "Description": "S3 bucket name for the lambda function used in the pipeline actions."
+        },
+        "GitHubToken": {
+            "NoEcho": "true",
+            "Type": "String",
+            "Description": "Secret. It might look something like 9b189a1654643522561f7b3ebd44a1531a4287af OAuthToken with access to Repo. Go to https://github.com/settings/tokens"
+        },
+        "GitHubUser": {
+            "Type": "String",
+            "Description": "GitHub UserName"
+        },
+        "GitHubRepo": {
+            "Type": "String",
+            "Description": "GitHub Repo to pull from. Only the Name. not the URL"
+        },
+        "GitHubBranch": {
+            "Type": "String",
+            "Description": "Branch to use from Repo. Only the Name. not the URL"
+        }
+    },
+    "Mappings": {
+        "EndpointMap": {
+            "us-east-1": {
+                "s3": "https://s3.amazonaws.com"
+            },
+            "us-west-2": {
+                "s3": "https://s3-us-west-2.amazonaws.com"
+            },
+            "eu-west-1": {
+                "s3": "https://s3-eu-west-1.amazonaws.com"
+            },
+            "ap-northeast-1": {
+                "s3": "https://s3-ap-northeast-1.amazonaws.com"
+            }
+        }
+    },
+    "Resources": {
+        "CodePipelineRole": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "AssumeRolePolicyDocument": {
+                    "Statement": [{
+                        "Sid": "1",
+                        "Effect": "Allow",
+                        "Principal": {
+                            "Service": [
+                                "codepipeline.amazonaws.com"
+                            ]
+                        },
+                        "Action": "sts:AssumeRole"
+                    }]
+                },
+                "Path": "/",
+                "Policies": [{
+                    "PolicyName": "CodePipelinePolicy",
+                    "PolicyDocument": {
+                        "Version": "2012-10-17",
+                        "Statement": [{
+                            "Action": [
+                                "s3:GetObject",
+                                "s3:GetObjectVersion",
+                                "s3:GetBucketVersioning"
+                            ],
+                            "Resource": "*",
+                            "Effect": "Allow"
+                        }, {
+                            "Action": [
+                                "s3:PutObject"
+                            ],
+                            "Resource": [
+                                "arn:aws:s3:::codepipeline*"
+                            ],
+                            "Effect": "Allow"
+                        }, {
+                            "Action": [
+                                "cloudwatch:*",
+                                "s3:*",
+                                "cloudformation:*",
+                                "iam:PassRole"
+                            ],
+                            "Resource": "*",
+                            "Effect": "Allow"
+                        }, {
+                            "Action": [
+                                "lambda:InvokeFunction",
+                                "lambda:ListFunctions"
+                            ],
+                            "Resource": "*",
+                            "Effect": "Allow"
+                        }]
+                    }
+                }]
+            }
+        },
+        "CodePipelineLambdaRole": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "AssumeRolePolicyDocument": {
+                    "Version": "2012-10-17",
+                    "Statement": [{
+                        "Effect": "Allow",
+                        "Principal": {
+                            "Service": [
+                                "lambda.amazonaws.com"
+                            ]
+                        },
+                        "Action": [
+                            "sts:AssumeRole"
+                        ]
+                    }]
+                },
+                "Path": "/",
+                "Policies": [{
+                    "PolicyName": "LambdaPolicy",
+                    "PolicyDocument": {
+                        "Version": "2012-10-17",
+                        "Statement": [{
+                            "Effect": "Allow",
+                            "Action": [
+                                "logs:*"
+                            ],
+                            "Resource": [
+                                "arn:aws:logs:*:*:*"
+                            ]
+                        }, {
+                            "Effect": "Allow",
+                            "Action": [
+                                "codepipeline:GetJobDetails",
+                                "codepipeline:PutJobSuccessResult",
+                                "codepipeline:PutJobFailureResult"
+                            ],
+                            "Resource": [
+                                "*"
+                            ]
+                        }, {
+                            "Action": [
+                                "s3:*",
+                                "apigateway:*",
+                                "lambda:*",
+                                "dynamodb:*",
+                                "cloudformation:*",
+                                "iam:*",
+                                "ssm:*"
+                            ],
+                            "Resource": "*",
+                            "Effect": "Allow"
+                        }]
+                    }
+                }]
+            }
+        },
+        "CodePipelineLambda": {
+            "DependsOn": ["EC2Instance"],
+            "Type": "AWS::Lambda::Function",
+            "Properties": {
+                "Code": {
+                    "S3Bucket": {
+                        "Ref": "LambdaBucketName"
+                    },
+                    "S3Key": "serverless-pipeliner.zip"
+                },
+                "Role": {
+                    "Fn::GetAtt": ["CodePipelineLambdaRole", "Arn"]
+                },
+                "Description": "Run tasks for pipeline",
+                "Timeout": 300,
+                "Handler": "index.handler",
+                "Runtime": "nodejs4.3",
+                "MemorySize": 1536
+            }
+        },
+        "ArtifactBucket": {
+            "Type": "AWS::S3::Bucket",
+            "Properties": {}
+        },
+        "HabitatPipeline": {
+            "Type": "AWS::CodePipeline::Pipeline",
+            "DependsOn": [
+                "CodePipelineLambda"
+            ],
+            "Properties": {
+                "DisableInboundStageTransitions": [],
+                "RoleArn": {
+                    "Fn::GetAtt": ["CodePipelineRole", "Arn"]
+                },
+                "Stages": [{
+                    "Name": "Source",
+                    "Actions": [{
+                        "InputArtifacts": [],
+                        "Name": "Source",
+                        "ActionTypeId": {
+                            "Category": "Source",
+                            "Owner": "ThirdParty",
+                            "Version": "1",
+                            "Provider": "GitHub"
+                        },
+                        "Configuration": {
+                            "Owner": {
+                                "Ref": "GitHubUser"
+                            },
+                            "Repo": {
+                                "Ref": "GitHubRepo"
+                            },
+                            "Branch": {
+                                "Ref": "GitHubBranch"
+                            },
+                            "OAuthToken": {
+                                "Ref": "GitHubToken"
+                            }
+                        },
+                        "OutputArtifacts": [{
+                            "Name": "SourceOutput"
+                        }],
+                        "RunOrder": 1
+                    }]
+                }, {
+                    "Name": "Commit",
+                    "Actions": [{
+                        "InputArtifacts": [{
+                            "Name": "SourceOutput"
+                        }],
+                        "Name": "Stage-SourceCode",
+                        "ActionTypeId": {
+                            "Category": "Invoke",
+                            "Owner": "AWS",
+                            "Version": "1",
+                            "Provider": "Lambda"
+                        },
+                        "Configuration": {
+                            "FunctionName": {
+                                "Ref": "CodePipelineLambda"
+                            },
+                            "UserParameters": {
+                                "Fn::Join": ["", ["command=", "Stage-SourceCode", "&instanceId=", {
+                                    "Ref": "EC2Instance"
+                                }]]
+                            }
+                        },
+                        "OutputArtifacts": [],
+                        "RunOrder": 1
+                    }, {
+                        "InputArtifacts": [{
+                            "Name": "SourceOutput"
+                        }],
+                        "Name": "Initialize-Habitat",
+                        "ActionTypeId": {
+                            "Category": "Invoke",
+                            "Owner": "AWS",
+                            "Version": "1",
+                            "Provider": "Lambda"
+                        },
+                        "Configuration": {
+                            "FunctionName": {
+                                "Ref": "CodePipelineLambda"
+                            },
+                            "UserParameters": {
+                                "Fn::Join": ["", ["command=", "Initialize-Habitat", "&instanceId=", {
+                                    "Ref": "EC2Instance"
+                                }, "&githubToken=", {
+                                    "Ref": "GitHubToken"
+                                }]]
+                            }
+                        },
+                        "OutputArtifacts": [],
+                        "RunOrder": 2
+                    }, {
+                        "InputArtifacts": [{
+                            "Name": "SourceOutput"
+                        }],
+                        "Name": "Test-StaticAnalysis",
+                        "ActionTypeId": {
+                            "Category": "Invoke",
+                            "Owner": "AWS",
+                            "Version": "1",
+                            "Provider": "Lambda"
+                        },
+                        "Configuration": {
+                            "FunctionName": {
+                                "Ref": "CodePipelineLambda"
+                            },
+                            "UserParameters": {
+                                "Fn::Join": ["", ["command=", "Test-StaticAnalysis", "&instanceId=", {
+                                    "Ref": "EC2Instance"
+                                }]]
+                            }
+                        },
+                        "OutputArtifacts": [],
+                        "RunOrder": 3
+                    }, {
+                        "InputArtifacts": [{
+                            "Name": "SourceOutput"
+                        }],
+                        "Name": "Build-HabitatPackage",
+                        "ActionTypeId": {
+                            "Category": "Invoke",
+                            "Owner": "AWS",
+                            "Version": "1",
+                            "Provider": "Lambda"
+                        },
+                        "Configuration": {
+                            "FunctionName": {
+                                "Ref": "CodePipelineLambda"
+                            },
+                            "UserParameters": {
+                                "Fn::Join": ["", ["command=", "Build-HabitatPackage", "&instanceId=", {
+                                    "Ref": "EC2Instance"
+                                }]]
+                            }
+                        },
+                        "OutputArtifacts": [],
+                        "RunOrder": 4
+                    }
+                  ]
+                }, {
+                    "Name": "Acceptance",
+                    "Actions": [{
+                        "Name": "Create-TestEnvironment",
+                        "ActionTypeId": {
+                            "Category": "Invoke",
+                            "Owner": "AWS",
+                            "Version": "1",
+                            "Provider": "Lambda"
+                        },
+                        "Configuration": {
+                            "FunctionName": {
+                                "Ref": "CodePipelineLambda"
+                            },
+                            "UserParameters": {
+                                "Fn::Join": ["", ["command=", "Create-TestEnvironment", "&instanceId=", {
+                                    "Ref": "EC2Instance"
+                                }]]
+                            }
+                        },
+                        "OutputArtifacts": [],
+                        "RunOrder": 1
+                    }, {
+                        "Name": "Test-HabitatPackage",
+                        "ActionTypeId": {
+                            "Category": "Invoke",
+                            "Owner": "AWS",
+                            "Version": "1",
+                            "Provider": "Lambda"
+                        },
+                        "Configuration": {
+                            "FunctionName": {
+                                "Ref": "CodePipelineLambda"
+                            },
+                            "UserParameters": {
+                                "Fn::Join": ["", ["command=", "Test-HabitatPackage", "&instanceId=", {
+                                    "Ref": "EC2Instance"
+                                }]]
+                            }
+                        },
+                        "OutputArtifacts": [],
+                        "RunOrder": 2
+                    }, {
+                        "Name": "Publish-HabitatPackage",
+                        "ActionTypeId": {
+                            "Category": "Invoke",
+                            "Owner": "AWS",
+                            "Version": "1",
+                            "Provider": "Lambda"
+                        },
+                        "Configuration": {
+                            "FunctionName": {
+                                "Ref": "CodePipelineLambda"
+                            },
+                            "UserParameters": {
+                                "Fn::Join": ["", ["command=", "Publish-HabitatPackage", "&instanceId=", {
+                                    "Ref": "EC2Instance"
+                                }, "&githubToken=", {
+                                    "Ref": "GitHubToken"
+                                }]]
+                            }
+                        },
+                        "OutputArtifacts": [],
+                        "RunOrder": 3
+                    }]
+                }],
+                "ArtifactStore": {
+                    "Type": "S3",
+                    "Location": {
+                        "Ref": "ArtifactBucket"
+                    }
+                }
+            }
+        },
+        "EC2InstanceRole": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "ManagedPolicyArns": ["arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM"],
+                "AssumeRolePolicyDocument": {
+                    "Version": "2012-10-17",
+                    "Statement": [{
+                        "Effect": "Allow",
+                        "Principal": {
+                            "Service": ["ec2.amazonaws.com"]
+                        },
+                        "Action": ["sts:AssumeRole"]
+                    }]
+                }
+            }
+        },
+        "InstanceProfile": {
+            "Type": "AWS::IAM::InstanceProfile",
+            "Properties": {
+                "Path": "/",
+                "Roles": [{
+                    "Ref": "EC2InstanceRole"
+                }]
+            }
+        },
+        "EC2Instance": {
+            "Type": "AWS::EC2::Instance",
+            "CreationPolicy": {
+                "ResourceSignal": {
+                    "Count": 1,
+                    "Timeout": "PT15M"
+                }
+            },
+            "Properties": {
+                "IamInstanceProfile": {
+                    "Ref": "InstanceProfile"
+                },
+                "InstanceType": "m3.medium",
+                "SecurityGroups": [{
+                    "Ref": "InstanceSecurityGroup"
+                }],
+                "KeyName": {
+                    "Ref": "KeyName"
+                },
+                "ImageId": "ami-6869aa05",
+                "UserData": {
+                    "Fn::Base64": {
+                        "Fn::Join": ["", [
+                            "#!/bin/bash \n",
+                            "set -x \n",
+                            "function error_exit { \n",
+                            "  cfn-signal -e 1 --stack ", {
+                                "Ref": "AWS::StackName"
+                            }, " --resource EC2Instance \n",
+                            "  exit 1 \n",
+                            "} \n",
+                            "yum update -y || error_exit \n",
+                            "yum install -y docker || error_exit \n",
+                            "yum install -y git || error_exit \n",
+                            "yum install -y ghc || error_exit \n",
+                            "curl -o cabal.tar.gz -L https://www.haskell.org/cabal/release/cabal-install-1.24.0.0/cabal-install-1.24.0.0-x86_64-unknown-linux.tar.gz || error_exit \n",
+                            "tar xvzf cabal.tar.gz || error_exit \n",
+                            "cp cabal /usr/bin/ || error_exit \n",
+                            "cabal update \n",
+                            "cabal install shellcheck || error_exit \n",
+                            "cp /root/.cabal/bin/shellcheck /usr/bin || error_exit \n",
+                            "service docker start || error_exit \n",
+                            "usermod -a -G docker ec2-user || error_exit \n",
+                            "cd /tmp || error_exit \n",
+                            "curl https://amazon-ssm-us-east-1.s3.amazonaws.com/latest/linux_amd64/amazon-ssm-agent.rpm -o amazon-ssm-agent.rpm || error_exit \n",
+                            "yum install -y --nogpgcheck localinstall amazon-ssm-agent.rpm || error_exit \n",
+                            "curl -L 'https://api.bintray.com/content/habitat/stable/linux/x86_64/hab-%24latest-x86_64-linux.tar.gz?bt_package=hab-x86_64-linux' -o habitat.tar.gz || error_exit \n",
+                            "mkdir -p habitat && tar xvzf habitat.tar.gz -C habitat --strip-components=1 || error_exit \n",
+                            "cp habitat/hab /usr/bin/ || error_exit \n",
+                            "git clone https://github.com/sstephenson/bats.git || error_exit \n",
+                            "cd bats && ./install.sh /usr/bin || error_exit \n",
+                            "/opt/aws/bin/cfn-signal -e 0 --stack ", {
+                                "Ref": "AWS::StackName"
+                            }, " --resource EC2Instance \n"
+                        ]]
+                    }
+                }
+            }
+        },
+
+        "InstanceSecurityGroup": {
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "GroupDescription": "Enable SSH access via port 22",
+                "SecurityGroupIngress": [{
+                    "IpProtocol": "tcp",
+                    "FromPort": "22",
+                    "ToPort": "22",
+                    "CidrIp": "0.0.0.0/0"
+                }]
+            }
+        }
+    },
+    "Outputs": {
+        "CodePipelineLambdaArn": {
+            "Value": {
+                "Fn::GetAtt": ["CodePipelineLambda", "Arn"]
+            },
+            "Description": "Lambda Arn"
+        },
+        "ArtifactBucket": {
+            "Value": {
+                "Ref": "ArtifactBucket"
+            }
+        },
+        "PipelineName": {
+            "Value": {
+                "Ref": "HabitatPipeline"
+            }
+        }
+    }
+}
