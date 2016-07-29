@@ -32,13 +32,13 @@ exports.handler = function(event, context) {
             //cmds.push("shellcheck -e SC2034 -e SC2154 /tmp/SourceOutput/plan.sh");
             break;
         case "Build-HabitatPackage":
-            cmds.push("cd /tmp/SourceOutput && hab pkg build .");
+            cmds.push("cd /tmp/SourceOutput && hab pkg build . && mkdir -p /tmp/pipeline/hab && cp -r /tmp/SourceOutput/results \"$_\"");
             break;
         case "Create-TestEnvironment":
             cmds.push("cd SourceOutput");
             cmds.push("export HAB_ORIGIN=" + pkgOrigin);
-            cmds.push("if [ $(docker ps -a -q) ]; then docker rm -f -v $(docker ps -a -q); fi");
-            cmds.push("if [ $(docker images -q) ]; then docker rmi -f $(docker images -q); fi");
+            cmds.push("purge_containers=$(if [ $(docker ps -a -q | wc -l) -gt 0 ]; then docker rm -f -v $(docker ps -a -q); fi)");
+            cmds.push("purge_images=$(if [  $(docker images -q | wc -l) -gt 0 ]; then docker rmi -f $(docker images -q); fi)");
             cmds.push("hab studio run \"hab pkg export docker " + pkgIdent + "\"");
             cmds.push("docker run -it -d -p 8080:8080 --name " + pkgName + " " + pkgIdent);
             break;
@@ -46,8 +46,8 @@ exports.handler = function(event, context) {
             cmds.push("bats --tap /tmp/SourceOutput/test.bats");
             break;
         case "Publish-HabitatPackage":
-            var pkgArtifact = "$(awk -F= '/^pkg_artifact/{print $2}' /tmp/SourceOutput/results/last_build.env)";
-            cmds.push("cd SourceOutput/results");
+            var pkgArtifact = "$(awk -F= '/^pkg_artifact/{print $2}' /tmp/pipeline/hab/results/last_build.env)";
+            cmds.push("cd /tmp/pipeline/hab/results");
             cmds.push("export HAB_AUTH_TOKEN=" + userParams.githubToken);
             cmds.push("hab pkg upload " + pkgArtifact);
             break;
@@ -113,26 +113,27 @@ exports.handler = function(event, context) {
                         if (err) {
                             callback(err);
                         } else {
-                            console.log("command status: " + JSON.stringify(data2));
-                            switch (data2.CommandInvocations[0].Status) {
+                            console.log("SSM Command status: " + JSON.stringify(data2));
+                            var invoc = data2.CommandInvocations[0];
+                            switch (invoc.Status) {
                                 case "Success":
                                     clearInterval(timer);
                                     callback(null, data);
                                     break;
                                 case "Failed":
                                     clearInterval(timer);
-                                    callback("SSM Command Failed");
+                                    callback("SSM Failed: " + invoc.TraceOutput);
                                     break;
                                 case "Cancelled":
                                     clearInterval(timer);
-                                    callback("SSM Command Cancelled");
+                                    callback("SSM Cancelled: " + invoc.TraceOutput);
                                     break;
                                 case "TimedOut":
                                     clearInterval(timer);
-                                    callback("SSM Command TimedOut");
+                                    callback("SSM TimedOut: " + invoc.TraceOutput);
                                     break;
                                 default:
-                                    console.log("Command: " + data2.CommandInvocations[0].CommandId + " is in progress...");
+                                    console.log("SSM Command: " + data2.CommandInvocations[0].CommandId + " is in progress...");
                             }
                         }
                     });
